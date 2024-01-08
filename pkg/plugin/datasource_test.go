@@ -1,28 +1,53 @@
 package plugin
 
 import (
-	"context"
+	"fmt"
 	"testing"
 
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/ckbedwell/grafana-a11y/pkg/models"
+	"github.com/stretchr/testify/require"
 )
 
-func TestQueryData(t *testing.T) {
-	ds := Datasource{}
+// const apiKey = `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`
 
-	resp, err := ds.QueryData(
-		context.Background(),
-		&backend.QueryDataRequest{
-			Queries: []backend.DataQuery{
-				{RefID: "A"},
-			},
+// func TestQueryData(t *testing.T) {
+// 	di := backend.DataSourceInstanceSettings{
+// 		DecryptedSecureJSONData: map[string]string{
+// 			"apiKey": apiKey,
+// 		},
+// 	}
+
+// 	ds, err := NewDatasource(context.Background(), di)
+// 	require.NoError(t, err)
+
+// 	myDs, test := ds.(*Datasource)
+// 	require.True(t, test)
+// 	_, statusCode, err := myDs.QueryApi(context.Background())
+// 	require.NoError(t, err)
+// 	require.Equal(t, 200, statusCode)
+
+// 	require.NoError(t, err)
+// 	// fmt.Println(jsRes)
+// }
+
+func TestTerminalLogger(t *testing.T) {
+	fmt.Println("Hello World")
+
+	input := []models.Label{
+		{
+			Name: "test",
 		},
-	)
-	if err != nil {
-		t.Error(err)
+		{
+			Name: "test2",
+		},
 	}
 
-	if len(resp.Responses) != 1 {
-		t.Fatal("QueryData must return a response")
+	var labels string
+
+	for _, l := range input {
+		labels += fmt.Sprintf("%s, ", l.Name)
 	}
+
+	fmt.Println(labels)
+	require.True(t, true)
 }

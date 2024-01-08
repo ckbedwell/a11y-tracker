@@ -4,106 +4,193 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"io"
+	"net/http"
+	"strings"
 	"time"
 
+	"github.com/ckbedwell/grafana-a11y/pkg/models"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
-// Make sure Datasource implements required interfaces. This is important to do
-// since otherwise we will only get a not implemented error response from plugin in
-// runtime. In this example datasource instance implements backend.QueryDataHandler,
-// backend.CheckHealthHandler interfaces. Plugin should not implement all these
-// interfaces - only those which are required for a particular task.
-var (
-	_ backend.QueryDataHandler      = (*Datasource)(nil)
-	_ backend.CheckHealthHandler    = (*Datasource)(nil)
-	_ instancemgmt.InstanceDisposer = (*Datasource)(nil)
-)
+const AppID = `a11y-datasource`
 
-// NewDatasource creates a new datasource instance.
-func NewDatasource(_ context.Context, _ backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	return &Datasource{}, nil
+type jsonRes []models.Issue
+
+func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	return &Datasource{
+		apiKey:     settings.DecryptedSecureJSONData["apiKey"],
+		httpClient: httpClient,
+	}, nil
 }
 
-// Datasource is an example datasource which can respond to data queries, reports
-// its health and has streaming skills.
-type Datasource struct{}
-
-// Dispose here tells plugin SDK that plugin wants to clean up resources when a new instance
-// created. As soon as datasource settings change detected by SDK old datasource instance will
-// be disposed and a new one will be created using NewSampleDatasource factory function.
-func (d *Datasource) Dispose() {
-	// Clean up datasource instance resources.
+type Datasource struct {
+	apiKey     string
+	httpClient *http.Client
 }
 
-// QueryData handles multiple queries and returns multiple responses.
-// req contains the queries []DataQuery (where each query contains RefID as a unique identifier).
-// The QueryDataResponse contains a map of RefID to the response for each query, and each response
-// contains Frames ([]*Frame).
 func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	// create response struct
 	response := backend.NewQueryDataResponse()
+	var err error = nil
+
+	if issueRequest {
+		issues, err := d.getIssues(ctx, req)
+	}
+
+	if labelRequest {
+		labels, err := d.getLabels(ctx, req)
+	}
 
 	// loop over queries and execute them individually.
 	for _, q := range req.Queries {
-		res := d.query(ctx, req.PluginContext, q)
-
+		res, statusCode, err := d.QueryApi(ctx)
+		if err != nil || statusCode != 200 {
+			log.DefaultLogger.Error("QueryApi", err)
+			log.DefaultLogger.Error("StatusCode", statusCode)
+		}
 		// save the response in a hashmap
 		// based on with RefID as identifier
-		response.Responses[q.RefID] = res
+		log.DefaultLogger.Info("QueryData", res)
+		response.Responses[q.RefID] = toDataResponse(res, statusCode, q.RefID)
 	}
 
-	return response, nil
+	return response, err
 }
 
-type queryModel struct{}
-
-func (d *Datasource) query(_ context.Context, pCtx backend.PluginContext, query backend.DataQuery) backend.DataResponse {
-	var response backend.DataResponse
-
-	// Unmarshal the JSON into our queryModel.
-	var qm queryModel
-
-	err := json.Unmarshal(query.JSON, &qm)
-	if err != nil {
-		return backend.ErrDataResponse(backend.StatusBadRequest, fmt.Sprintf("json unmarshal: %v", err.Error()))
+func toDataResponse(res jsonRes, statusCode int, refId string) backend.DataResponse {
+	if statusCode == 0 {
+		statusCode = 500
 	}
 
-	// create data frame response.
-	// For an overview on data frames and how grafana handles them:
-	// https://grafana.com/developers/plugin-tools/introduction/data-frames
-	frame := data.NewFrame("response")
+	return backend.DataResponse{
+		Frames:      toDataFrames(res, refId),
+		Error:       nil,
+		Status:      backend.Status(statusCode),
+		ErrorSource: backend.ErrorSourceDownstream,
+	}
+}
 
-	// add fields.
-	frame.Fields = append(frame.Fields,
-		data.NewField("time", nil, []time.Time{query.TimeRange.From, query.TimeRange.To}),
-		data.NewField("values", nil, []int64{10, 20}),
+func toDataFrames(res jsonRes, refId string) data.Frames {
+	frame := data.NewFrame(
+		"issues",
+		data.NewField("title", nil, []string{}),
+		data.NewField("createdAt", nil, []string{}),
+		data.NewField("state", nil, []string{}),
+		data.NewField("labels", nil, []string{}),
 	)
+	frame.RefID = refId // TODO: check what happens without this
 
-	// add the frames to the response.
-	response.Frames = append(response.Frames, frame)
+	for _, v := range res {
+		labels := []string{}
 
-	return response
+		for _, l := range v.Labels {
+			labels = append(labels, l.Name)
+		}
+
+		log.DefaultLogger.Debug("toDataFrames", labels)
+		frame.AppendRow(v.Title, v.CreatedAt, v.State, strings.Join(labels, `,`))
+	}
+
+	log.DefaultLogger.Info("toDataFrames", frame)
+	return data.Frames{frame}
 }
 
-// CheckHealth handles health checks sent from Grafana to the plugin.
-// The main use case for these health checks is the test button on the
-// datasource configuration page which allows users to verify that
-// a datasource is working as expected.
-func (d *Datasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
-	var status = backend.HealthStatusOk
-	var message = "Data source is working"
+func (d *Datasource) getIssues(ctx context.Context, req *backend.QueryDataRequest) ([]models.Issue, error) {
+	request, err := d.makeRequest("https://api.github.com/repos/grafana/grafana/issues?creator=ckbedwell", d.apiKey)
 
-	if rand.Int()%2 == 0 {
-		status = backend.HealthStatusError
-		message = "randomized error"
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, err := d.doRequest(request)
+	if err != nil {
+		return nil, err
+	}
+
+	var issues []models.Issue
+
+	if err := json.Unmarshal(bytes, &issues); err != nil {
+		return nil, err
+	}
+
+	return issues, nil
+}
+
+func (d *Datasource) getLabels(ctx context.Context, req *backend.QueryDataRequest) ([]models.Label, error) {
+	request, err := d.makeRequest("https://api.github.com/repos/grafana/grafana/labels", d.apiKey)
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, err := d.doRequest(request)
+	if err != nil {
+		return nil, err
+	}
+
+	var labels []models.Label
+
+	if err := json.Unmarshal(bytes, &labels); err != nil {
+		return nil, err
+	}
+
+	return labels, nil
+}
+
+func (d *Datasource) doRequest(request *http.Request) ([]byte, error) {
+	res, err := d.httpClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
+func (d *Datasource) makeRequest(url string) (*http.Request, error) {
+	request, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		log.DefaultLogger.Error("Making request", err)
+		return request, err
+	}
+
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", d.apiKey))
+	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	return request, err
+}
+
+func (d *Datasource) queryApi(ctx context.Context) {
+
+}
+
+func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+	res, statusCode, err := d.QueryApi(ctx)
+
+	if err != nil || statusCode != 200 {
+		log.DefaultLogger.Error("CheckHealth", res)
+
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: `Datasource is NOT working`,
+		}, err
 	}
 
 	return &backend.CheckHealthResult{
-		Status:  status,
-		Message: message,
+		Status:  backend.HealthStatusOk,
+		Message: `Datasource is working`,
 	}, nil
 }

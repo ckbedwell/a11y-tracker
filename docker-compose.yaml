@@ -12,5 +12,5 @@ services:
     ports:
       - 3000:3000/tcp
     volumes:
-      - ./dist:/var/lib/grafana/plugins/ckbedwell-grafanaa11y-datasource
+      - ./dist:/var/lib/grafana/plugins/a11y-datasource
       - ./provisioning:/etc/grafana/provisioning
