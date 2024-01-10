@@ -17,7 +17,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
-const AppID = `a11y-datasource`
+const AppID = `ckbedwell-a11y-datasource`
 
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	httpClient := &http.Client{
@@ -38,15 +38,15 @@ type Datasource struct {
 func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	// create response struct
 	response := backend.NewQueryDataResponse()
-	var err error = nil
-	log.DefaultLogger.Info("QueryData Request", req)
+	var e error = nil
 
 	// loop over queries and execute them individually.
 	for _, q := range req.Queries {
 		if q.QueryType == "issues" {
-			issues, err := d.getIssues(ctx, req)
+			issues, err := d.getAllIssues(req)
 			if err != nil {
 				log.DefaultLogger.Error("Get issues error", err)
+				e = err
 			}
 
 			issuesDataFrames := toIssuesDataFrames(issues, q.RefID)
@@ -54,9 +54,10 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		}
 
 		if q.QueryType == "labels" {
-			labels, err := d.getLabels(ctx, req)
+			labels, err := d.getAllLabels(req)
 			if err != nil {
 				log.DefaultLogger.Error("Get issues error", err)
+				e = err
 			}
 
 			labelsDataFrames := toLabelsDataFrames(labels, q.RefID)
@@ -64,7 +65,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		}
 	}
 
-	return response, err
+	return response, e
 }
 
 func toDataResponse(frames data.Frames, refId string) backend.DataResponse {
@@ -115,13 +116,26 @@ func toLabelsDataFrames(res []models.Label, refId string) data.Frames {
 	return data.Frames{frame}
 }
 
-func (d *Datasource) getIssues(ctx context.Context, req *backend.QueryDataRequest) ([]models.Issue, error) {
-	url := "https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility&per_page=100"
-	var issues []models.Issue
+func (d *Datasource) getAllIssues(req *backend.QueryDataRequest) ([]models.Issue, error) {
+	return d.getAll("https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility&per_page=100")
+}
+
+func (d *Datasource) getAllLabels(req *backend.QueryDataRequest) ([]models.Label, error) {
+	var labels []models.Label
+	var err error
+	// err := d.getAll("https://api.github.com/repos/grafana/grafana/labels", labels)
+
+	return labels, err
+}
+
+func (d *Datasource) getAll(baseURL string) ([]models.Issue, error) {
+	url := baseURL
+	var items []models.Issue
 
 	for {
-		log.DefaultLogger.Info("getIssues", url)
+		log.DefaultLogger.Info("Paginate URL", url)
 		request, err := d.createRequest(url)
+		log.DefaultLogger.Info("QueryData Request", url)
 		if err != nil {
 			return nil, err
 		}
@@ -131,23 +145,21 @@ func (d *Datasource) getIssues(ctx context.Context, req *backend.QueryDataReques
 			return nil, err
 		}
 
-		var pageIssues []models.Issue
-		if err := json.Unmarshal(resp, &pageIssues); err != nil {
+		var newItems []models.Issue
+		if err := json.Unmarshal(resp, &newItems); err != nil {
 			return nil, err
 		}
 
-		issues = append(issues, pageIssues...)
+		items = append(items, newItems...)
 
 		linkHeader := headers.Get("Link")
-		nextURL := getNextURL(linkHeader)
-		if nextURL == "" {
+		url = getNextURL(linkHeader)
+		if url == "" {
 			break
 		}
-
-		url = nextURL
 	}
 
-	return issues, nil
+	return items, nil
 }
 
 func getNextURL(linkHeader string) string {
@@ -170,26 +182,6 @@ func getURL(link string) string {
 	return matches[1]
 }
 
-func (d *Datasource) getLabels(ctx context.Context, req *backend.QueryDataRequest) ([]models.Label, error) {
-	request, err := d.createRequest("https://api.github.com/repos/grafana/grafana/labels")
-	if err != nil {
-		return nil, err
-	}
-
-	bytes, _, err := d.doRequest(request)
-	if err != nil {
-		return nil, err
-	}
-
-	var labels []models.Label
-
-	if err := json.Unmarshal(bytes, &labels); err != nil {
-		return nil, err
-	}
-
-	return labels, nil
-}
-
 func (d *Datasource) doRequest(request *http.Request) ([]byte, http.Header, error) {
 	res, err := d.httpClient.Do(request)
 
@@ -203,12 +195,12 @@ func (d *Datasource) doRequest(request *http.Request) ([]byte, http.Header, erro
 		return nil, nil, err
 	}
 
-	// log.DefaultLogger.Info("doRequest", res.Header)
 	return body, res.Header, nil
 }
 
 func (d *Datasource) createRequest(url string) (*http.Request, error) {
 	request, err := http.NewRequest(http.MethodGet, url, nil)
+
 	if err != nil {
 		log.DefaultLogger.Error("Making request", err)
 		return request, err
@@ -222,7 +214,15 @@ func (d *Datasource) createRequest(url string) (*http.Request, error) {
 }
 
 func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
-	res, err := d.createRequest("https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility&per_page=100")
+	request, err := d.createRequest("https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility")
+	if err != nil {
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: `Failed to construct request`,
+		}, err
+	}
+
+	res, _, err := d.doRequest(request)
 
 	if err != nil {
 		log.DefaultLogger.Error("CheckHealth", res)

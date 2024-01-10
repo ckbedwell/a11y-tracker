@@ -1,7 +1,7 @@
 {
-  "name": "grafana-a11y",
+  "name": "a11y-tracker",
   "version": "1.0.0",
-  "description": "A datasource for a11y issues",
+  "description": "A datasource to track a11y issues in GitHub.",
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
@@ -15,7 +15,7 @@
     "server": "docker-compose up --build",
     "sign": "npx --yes @grafana/sign-plugin@latest"
   },
-  "author": "Ckbedwell",
+  "author": "ckbedwell",
   "license": "Apache-2.0",
   "devDependencies": {
     "@babel/core": "^7.21.4",
