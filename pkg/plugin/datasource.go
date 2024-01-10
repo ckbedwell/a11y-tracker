@@ -117,40 +117,39 @@ func toLabelsDataFrames(res []models.Label, refId string) data.Frames {
 }
 
 func (d *Datasource) getAllIssues(req *backend.QueryDataRequest) ([]models.Issue, error) {
-	return d.getAll("https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility&per_page=100")
+	issues := []models.Issue{}
+	err := d.getAll("https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility&per_page=100", &issues)
+	return issues, err
 }
 
 func (d *Datasource) getAllLabels(req *backend.QueryDataRequest) ([]models.Label, error) {
-	var labels []models.Label
-	var err error
-	// err := d.getAll("https://api.github.com/repos/grafana/grafana/labels", labels)
-
+	labels := []models.Label{}
+	err := d.getAll("https://api.github.com/repos/grafana/grafana/labels", &labels)
 	return labels, err
 }
 
-func (d *Datasource) getAll(baseURL string) ([]models.Issue, error) {
+func (d *Datasource) getAll(baseURL string, items interface{}) error {
 	url := baseURL
-	var items []models.Issue
 
 	for {
 		log.DefaultLogger.Info("Paginate URL", url)
 		request, err := d.createRequest(url)
 		log.DefaultLogger.Info("QueryData Request", url)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		resp, headers, err := d.doRequest(request)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		var newItems []models.Issue
+		var newItems []interface{}
 		if err := json.Unmarshal(resp, &newItems); err != nil {
-			return nil, err
+			return err
 		}
 
-		items = append(items, newItems...)
+		items = append(items.([]interface{}), newItems...)
 
 		linkHeader := headers.Get("Link")
 		url = getNextURL(linkHeader)
@@ -159,7 +158,7 @@ func (d *Datasource) getAll(baseURL string) ([]models.Issue, error) {
 		}
 	}
 
-	return items, nil
+	return nil
 }
 
 func getNextURL(linkHeader string) string {
