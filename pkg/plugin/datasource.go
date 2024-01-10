@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,8 +18,6 @@ import (
 )
 
 const AppID = `a11y-datasource`
-
-type jsonRes []models.Issue
 
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	httpClient := &http.Client{
@@ -40,49 +39,49 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 	// create response struct
 	response := backend.NewQueryDataResponse()
 	var err error = nil
-
-	if issueRequest {
-		issues, err := d.getIssues(ctx, req)
-	}
-
-	if labelRequest {
-		labels, err := d.getLabels(ctx, req)
-	}
+	log.DefaultLogger.Info("QueryData Request", req)
 
 	// loop over queries and execute them individually.
 	for _, q := range req.Queries {
-		res, statusCode, err := d.QueryApi(ctx)
-		if err != nil || statusCode != 200 {
-			log.DefaultLogger.Error("QueryApi", err)
-			log.DefaultLogger.Error("StatusCode", statusCode)
+		if q.QueryType == "issues" {
+			issues, err := d.getIssues(ctx, req)
+			if err != nil {
+				log.DefaultLogger.Error("Get issues error", err)
+			}
+
+			issuesDataFrames := toIssuesDataFrames(issues, q.RefID)
+			response.Responses[q.RefID] = toDataResponse(issuesDataFrames, q.RefID)
 		}
-		// save the response in a hashmap
-		// based on with RefID as identifier
-		log.DefaultLogger.Info("QueryData", res)
-		response.Responses[q.RefID] = toDataResponse(res, statusCode, q.RefID)
+
+		if q.QueryType == "labels" {
+			labels, err := d.getLabels(ctx, req)
+			if err != nil {
+				log.DefaultLogger.Error("Get issues error", err)
+			}
+
+			labelsDataFrames := toLabelsDataFrames(labels, q.RefID)
+			response.Responses[q.RefID] = toDataResponse(labelsDataFrames, q.RefID)
+		}
 	}
 
 	return response, err
 }
 
-func toDataResponse(res jsonRes, statusCode int, refId string) backend.DataResponse {
-	if statusCode == 0 {
-		statusCode = 500
-	}
-
+func toDataResponse(frames data.Frames, refId string) backend.DataResponse {
 	return backend.DataResponse{
-		Frames:      toDataFrames(res, refId),
+		Frames:      frames,
 		Error:       nil,
-		Status:      backend.Status(statusCode),
+		Status:      backend.Status(200),
 		ErrorSource: backend.ErrorSourceDownstream,
 	}
 }
 
-func toDataFrames(res jsonRes, refId string) data.Frames {
+func toIssuesDataFrames(res []models.Issue, refId string) data.Frames {
 	frame := data.NewFrame(
 		"issues",
 		data.NewField("title", nil, []string{}),
 		data.NewField("createdAt", nil, []string{}),
+		data.NewField("author", nil, []string{}),
 		data.NewField("state", nil, []string{}),
 		data.NewField("labels", nil, []string{}),
 	)
@@ -95,42 +94,89 @@ func toDataFrames(res jsonRes, refId string) data.Frames {
 			labels = append(labels, l.Name)
 		}
 
-		log.DefaultLogger.Debug("toDataFrames", labels)
-		frame.AppendRow(v.Title, v.CreatedAt, v.State, strings.Join(labels, `,`))
+		frame.AppendRow(v.Title, v.CreatedAt, v.User.Login, v.State, strings.Join(labels, `,`))
 	}
 
-	log.DefaultLogger.Info("toDataFrames", frame)
+	return data.Frames{frame}
+}
+
+func toLabelsDataFrames(res []models.Label, refId string) data.Frames {
+	frame := data.NewFrame(
+		"issues",
+		data.NewField("title", nil, []string{}),
+		data.NewField("color", nil, []string{}),
+	)
+	frame.RefID = refId // TODO: check what happens without this
+
+	for _, v := range res {
+		frame.AppendRow(v.Name, v.Color)
+	}
+
 	return data.Frames{frame}
 }
 
 func (d *Datasource) getIssues(ctx context.Context, req *backend.QueryDataRequest) ([]models.Issue, error) {
-	request, err := d.makeRequest("https://api.github.com/repos/grafana/grafana/issues?creator=ckbedwell", d.apiKey)
-
-	if err != nil {
-		return nil, err
-	}
-
-	bytes, err := d.doRequest(request)
-	if err != nil {
-		return nil, err
-	}
-
+	url := "https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility&per_page=100"
 	var issues []models.Issue
 
-	if err := json.Unmarshal(bytes, &issues); err != nil {
-		return nil, err
+	for {
+		log.DefaultLogger.Info("getIssues", url)
+		request, err := d.createRequest(url)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, headers, err := d.doRequest(request)
+		if err != nil {
+			return nil, err
+		}
+
+		var pageIssues []models.Issue
+		if err := json.Unmarshal(resp, &pageIssues); err != nil {
+			return nil, err
+		}
+
+		issues = append(issues, pageIssues...)
+
+		linkHeader := headers.Get("Link")
+		nextURL := getNextURL(linkHeader)
+		if nextURL == "" {
+			break
+		}
+
+		url = nextURL
 	}
 
 	return issues, nil
 }
 
+func getNextURL(linkHeader string) string {
+	links := strings.Split(linkHeader, ",")
+	var nextURL string
+
+	for _, link := range links {
+		if strings.Contains(link, `rel="next"`) {
+			nextURL = getURL(link)
+			break
+		}
+	}
+
+	return nextURL
+}
+
+func getURL(link string) string {
+	re := regexp.MustCompile(`<(.*)>`)
+	matches := re.FindStringSubmatch(link)
+	return matches[1]
+}
+
 func (d *Datasource) getLabels(ctx context.Context, req *backend.QueryDataRequest) ([]models.Label, error) {
-	request, err := d.makeRequest("https://api.github.com/repos/grafana/grafana/labels", d.apiKey)
+	request, err := d.createRequest("https://api.github.com/repos/grafana/grafana/labels")
 	if err != nil {
 		return nil, err
 	}
 
-	bytes, err := d.doRequest(request)
+	bytes, _, err := d.doRequest(request)
 	if err != nil {
 		return nil, err
 	}
@@ -144,22 +190,24 @@ func (d *Datasource) getLabels(ctx context.Context, req *backend.QueryDataReques
 	return labels, nil
 }
 
-func (d *Datasource) doRequest(request *http.Request) ([]byte, error) {
+func (d *Datasource) doRequest(request *http.Request) ([]byte, http.Header, error) {
 	res, err := d.httpClient.Do(request)
+
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return body, nil
+	// log.DefaultLogger.Info("doRequest", res.Header)
+	return body, res.Header, nil
 }
 
-func (d *Datasource) makeRequest(url string) (*http.Request, error) {
+func (d *Datasource) createRequest(url string) (*http.Request, error) {
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		log.DefaultLogger.Error("Making request", err)
@@ -173,14 +221,10 @@ func (d *Datasource) makeRequest(url string) (*http.Request, error) {
 	return request, err
 }
 
-func (d *Datasource) queryApi(ctx context.Context) {
-
-}
-
 func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
-	res, statusCode, err := d.QueryApi(ctx)
+	res, err := d.createRequest("https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility&per_page=100")
 
-	if err != nil || statusCode != 200 {
+	if err != nil {
 		log.DefaultLogger.Error("CheckHealth", res)
 
 		return &backend.CheckHealthResult{

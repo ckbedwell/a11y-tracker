@@ -1,6 +1,6 @@
 import React, { ChangeEvent } from 'react';
-import { InlineField, Input } from '@grafana/ui';
-import { QueryEditorProps } from '@grafana/data';
+import { InlineField, Input, Select } from '@grafana/ui';
+import { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
 import { MyDataSourceOptions, MyQuery } from '../types';
 
@@ -11,18 +11,25 @@ export function QueryEditor({ query, onChange, onRunQuery }: Props) {
     onChange({ ...query, queryText: event.target.value });
   };
 
-  const onConstantChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...query, constant: parseFloat(event.target.value) });
+  const onQueryTypeChange = (value: SelectableValue) => {
+    onChange({ ...query, queryType: value.value });
     // executes the query
     onRunQuery();
   };
 
-  const { queryText, constant } = query;
+  const { queryText, queryType } = query;
 
   return (
     <div className="gf-form">
-      <InlineField label="Constant">
-        <Input onChange={onConstantChange} value={constant} width={8} type="number" step="0.1" />
+      <InlineField label="Query Type">
+        <Select
+          onChange={onQueryTypeChange}
+          options={[
+            { label: 'Issues', value: 'issues' },
+            { label: `Labels`, value: `labels` },
+          ]}
+          value={queryType}
+        />
       </InlineField>
       <InlineField label="Query Text" labelWidth={16} tooltip="Not used yet">
         <Input onChange={onQueryTextChange} value={queryText || ''} />
