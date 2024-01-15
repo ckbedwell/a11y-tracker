@@ -53,10 +53,6 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			response.Responses[q.RefID] = toDataResponse(issuesDataFrames, q.RefID)
 		}
 
-		if q.QueryType == "groupedIssues" {
-
-		}
-
 		if q.QueryType == "labels" {
 			labels, err := d.getAllLabels(q)
 			if err != nil {
@@ -139,24 +135,53 @@ func (d *Datasource) getAllIssues(req backend.DataQuery) ([]models.Issue, error)
 
 	url := fmt.Sprintf("https://api.github.com/search/issues?%s", strings.Join(params, `&`))
 
-	return d.getAll(url)
+	items, err := d.getAll(url)
+	if err != nil {
+		return nil, err
+	}
+
+	var issues []models.Issue
+
+	for _, item := range items {
+		var result models.SearchIssuesResponse
+		err := json.Unmarshal(item, &result)
+
+		if err != nil {
+			return nil, err
+		}
+
+		issues = append(issues, result.Items...)
+	}
+
+	return issues, nil
 }
 
-func dateGroupIssues(req backend.DataQuery) {
+// func dateGroupIssues(req backend.DataQuery) {
 
-}
+// }
 
 func (d *Datasource) getAllLabels(req backend.DataQuery) ([]models.Label, error) {
+	items, err := d.getAll("https://api.github.com/repos/grafana/grafana/labels")
+
 	var labels []models.Label
-	var err error
-	// err := d.getAll("https://api.github.com/repos/grafana/grafana/labels", labels)
+
+	for _, item := range items {
+		var result []models.Label
+		err := json.Unmarshal(item, &result)
+
+		if err != nil {
+			return nil, err
+		}
+
+		labels = append(labels, result...)
+	}
 
 	return labels, err
 }
 
-func (d *Datasource) getAll(baseURL string) ([]models.Issue, error) {
+func (d *Datasource) getAll(baseURL string) ([][]byte, error) {
 	url := baseURL
-	var items []models.Issue
+	var items [][]byte
 
 	for {
 		log.DefaultLogger.Info("Paginate URL", url)
@@ -166,17 +191,12 @@ func (d *Datasource) getAll(baseURL string) ([]models.Issue, error) {
 			return nil, err
 		}
 
-		resp, headers, err := d.doRequest(request)
+		body, headers, err := d.doRequest(request)
 		if err != nil {
 			return nil, err
 		}
 
-		var jsonRes models.SearchIssuesResponse
-		if err := json.Unmarshal(resp, &jsonRes); err != nil {
-			return nil, err
-		}
-
-		items = append(items, jsonRes.Items...)
+		items = append(items, body)
 
 		linkHeader := headers.Get("Link")
 		url = getNextURL(linkHeader)
