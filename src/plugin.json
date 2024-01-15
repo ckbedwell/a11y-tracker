@@ -5,6 +5,7 @@
   "id": "ckbedwell-a11y-datasource",
   "metrics": true,
   "backend": true,
+  "alerting": true,
   "executable": "gpx_grafana_a11y",
   "info": {
     "description": "A datasource for tracking a11y issues.",

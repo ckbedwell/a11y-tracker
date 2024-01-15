@@ -17,7 +17,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
-const AppID = `ckbedwell-a11y-datasource`
+const AppID = `ckbedwell-a11y-datasource` // same as plugin.json#id
 
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	httpClient := &http.Client{
@@ -43,7 +43,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 	// loop over queries and execute them individually.
 	for _, q := range req.Queries {
 		if q.QueryType == "issues" {
-			issues, err := d.getAllIssues(req)
+			issues, err := d.getAllIssues(q)
 			if err != nil {
 				log.DefaultLogger.Error("Get issues error", err)
 				e = err
@@ -53,8 +53,12 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			response.Responses[q.RefID] = toDataResponse(issuesDataFrames, q.RefID)
 		}
 
+		if q.QueryType == "groupedIssues" {
+
+		}
+
 		if q.QueryType == "labels" {
-			labels, err := d.getAllLabels(req)
+			labels, err := d.getAllLabels(q)
 			if err != nil {
 				log.DefaultLogger.Error("Get issues error", err)
 				e = err
@@ -116,11 +120,33 @@ func toLabelsDataFrames(res []models.Label, refId string) data.Frames {
 	return data.Frames{frame}
 }
 
-func (d *Datasource) getAllIssues(req *backend.QueryDataRequest) ([]models.Issue, error) {
-	return d.getAll("https://api.github.com/repos/grafana/grafana/issues?state=all&labels=type/accessibility&per_page=100")
+func (d *Datasource) getAllIssues(req backend.DataQuery) ([]models.Issue, error) {
+	log.DefaultLogger.Error("Get issues", req)
+	to := req.TimeRange.To.Format(time.RFC3339)
+	from := req.TimeRange.From.Format(time.RFC3339)
+
+	query := []string{
+		"repo:grafana/grafana",
+		"is:issue",
+		fmt.Sprintf("created:%s..%s", from, to),
+		"label:type/accessibility",
+	}
+
+	params := []string{
+		"per_page=100",
+		fmt.Sprintf("q=%s", strings.Join(query, `+`)),
+	}
+
+	url := fmt.Sprintf("https://api.github.com/search/issues?%s", strings.Join(params, `&`))
+
+	return d.getAll(url)
 }
 
-func (d *Datasource) getAllLabels(req *backend.QueryDataRequest) ([]models.Label, error) {
+func dateGroupIssues(req backend.DataQuery) {
+
+}
+
+func (d *Datasource) getAllLabels(req backend.DataQuery) ([]models.Label, error) {
 	var labels []models.Label
 	var err error
 	// err := d.getAll("https://api.github.com/repos/grafana/grafana/labels", labels)
@@ -145,12 +171,12 @@ func (d *Datasource) getAll(baseURL string) ([]models.Issue, error) {
 			return nil, err
 		}
 
-		var newItems []models.Issue
-		if err := json.Unmarshal(resp, &newItems); err != nil {
+		var jsonRes models.SearchIssuesResponse
+		if err := json.Unmarshal(resp, &jsonRes); err != nil {
 			return nil, err
 		}
 
-		items = append(items, newItems...)
+		items = append(items, jsonRes.Items...)
 
 		linkHeader := headers.Get("Link")
 		url = getNextURL(linkHeader)

@@ -1,4 +1,5 @@
 import pluginJson from './plugin.json';
+import datasourcePluginJson from '../plugin.json';
 
 export const PLUGIN_BASE_URL = `/a/${pluginJson.id}`;
 
@@ -10,6 +11,16 @@ export enum ROUTES {
 }
 
 export const DATASOURCE_REF = {
-  uid: 'gdev-testdata',
+  uid: datasourcePluginJson.name,
   type: 'testdata',
+};
+
+export const TEST_DATASOURCE_REF = {
+  uid: 'grafana-testdata-datasource',
+  type: 'testdata',
+};
+
+export const DEFAULT_TIMERANGE = {
+  from: 'now-6M',
+  to: 'now',
 };

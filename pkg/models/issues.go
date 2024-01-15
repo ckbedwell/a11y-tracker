@@ -1,5 +1,9 @@
 package models
 
+type SearchIssuesResponse struct {
+	Items []Issue `json:"items"`
+}
+
 type Issue struct {
 	Title     string  `json:"title"`
 	CreatedAt string  `json:"created_at"`

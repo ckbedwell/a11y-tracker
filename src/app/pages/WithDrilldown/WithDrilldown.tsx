@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { prefixRoute } from '../../utils/utils.routing';
-import { DATASOURCE_REF, ROUTES } from '../../constants';
+import { TEST_DATASOURCE_REF, ROUTES } from '../../constants';
 import {
   EmbeddedScene,
   SceneApp,
@@ -16,7 +16,7 @@ import { getRoomsTemperatureStats, getRoomsTemperatureTable } from './panels';
 
 const roomsTemperatureQuery = {
   refId: 'Rooms temperature',
-  datasource: DATASOURCE_REF,
+  datasource: TEST_DATASOURCE_REF,
   scenarioId: 'random_walk',
   seriesCount: 8,
   alias: '__house_locations',
@@ -27,7 +27,7 @@ const roomsTemperatureQuery = {
 const getScene = () =>
   new EmbeddedScene({
     $data: new SceneQueryRunner({
-      datasource: DATASOURCE_REF,
+      datasource: TEST_DATASOURCE_REF,
       queries: [roomsTemperatureQuery],
       maxDataPoints: 100,
     }),

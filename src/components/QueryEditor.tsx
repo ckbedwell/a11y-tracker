@@ -1,5 +1,5 @@
-import React, { ChangeEvent } from 'react';
-import { InlineField, Input, Select } from '@grafana/ui';
+import React from 'react';
+import { InlineField, Select } from '@grafana/ui';
 import { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from 'datasource';
 import { MyDataSourceOptions, MyQuery } from 'types';
@@ -7,17 +7,13 @@ import { MyDataSourceOptions, MyQuery } from 'types';
 type Props = QueryEditorProps<DataSource, MyQuery, MyDataSourceOptions>;
 
 export function QueryEditor({ query, onChange, onRunQuery }: Props) {
-  const onQueryTextChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...query, queryText: event.target.value });
-  };
-
   const onQueryTypeChange = (value: SelectableValue) => {
     onChange({ ...query, queryType: value.value });
     // executes the query
     onRunQuery();
   };
 
-  const { queryText, queryType } = query;
+  const { queryType } = query;
 
   return (
     <div className="gf-form">
@@ -30,9 +26,6 @@ export function QueryEditor({ query, onChange, onRunQuery }: Props) {
           ]}
           value={queryType}
         />
-      </InlineField>
-      <InlineField label="Query Text" labelWidth={16} tooltip="Not used yet">
-        <Input onChange={onQueryTextChange} value={queryText || ''} />
       </InlineField>
     </div>
   );

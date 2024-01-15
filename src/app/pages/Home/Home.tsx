@@ -22,17 +22,12 @@ const getScene = () => {
     ],
   });
 };
+
 export const HomePage = () => {
   const scene = useMemo(() => getScene(), []);
 
   return (
     <>
-      {!config.featureToggles.topnav && (
-        <Alert title="Missing topnav feature toggle">
-          Scenes are designed to work with the new navigation wrapper that will be standard in Grafana 10
-        </Alert>
-      )}
-
       {!config.datasources[DATASOURCE_REF.uid] && (
         <Alert title={`Missing ${DATASOURCE_REF.uid} datasource`}>
           These demos depend on <b>testdata</b> datasource: <code>{JSON.stringify(DATASOURCE_REF)}</code>. See{' '}

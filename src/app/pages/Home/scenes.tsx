@@ -7,19 +7,15 @@ import {
   SceneFlexLayout,
   SceneQueryRunner,
   SceneRefreshPicker,
-  SceneTimePicker,
   SceneTimeRange,
   SceneVariableSet,
   VariableValueSelectors,
 } from '@grafana/scenes';
-import { DATASOURCE_REF } from '../../constants';
-import { CustomSceneObject } from './CustomSceneObject';
+import { DATASOURCE_REF, DEFAULT_TIMERANGE } from '../../constants';
+import { ToggleTimePicker } from './ToggleTimePicker';
 
 export function getBasicScene(templatised = true, seriesToShow = '__server_names') {
-  const timeRange = new SceneTimeRange({
-    from: 'now-6h',
-    to: 'now',
-  });
+  const timeRange = new SceneTimeRange(DEFAULT_TIMERANGE);
 
   // Variable definition, using Grafana built-in TestData datasource
   const customVariable = new CustomVariable({
@@ -29,27 +25,19 @@ export function getBasicScene(templatised = true, seriesToShow = '__server_names
     query: 'Server Names : __server_names, House locations : __house_locations',
   });
 
-  // Query runner definition, using Grafana built-in TestData datasource
   const queryRunner = new SceneQueryRunner({
     datasource: DATASOURCE_REF,
     queries: [
       {
         refId: 'A',
-        datasource: DATASOURCE_REF,
-        scenarioId: 'random_walk',
-        seriesCount: 5,
-        // Query is using variable value
-        alias: templatised ? '${seriesToShow}' : seriesToShow,
-        min: 30,
-        max: 60,
+        // datasource: DATASOURCE_REF,
       },
     ],
-    maxDataPoints: 100,
   });
 
   // Custom object definition
-  const customObject = new CustomSceneObject({
-    counter: 5,
+  const customObject = new ToggleTimePicker({
+    hidePicker: true,
   });
 
   // Query runner activation handler that will update query runner state when custom object state changes
@@ -59,7 +47,6 @@ export function getBasicScene(templatised = true, seriesToShow = '__server_names
         queries: [
           {
             ...queryRunner.state.queries[0],
-            seriesCount: newState.counter,
           },
         ],
       });
@@ -79,7 +66,7 @@ export function getBasicScene(templatised = true, seriesToShow = '__server_names
       children: [
         new SceneFlexItem({
           minHeight: 300,
-          body: PanelBuilders.timeseries()
+          body: PanelBuilders.table()
             // Title is using variable value
             .setTitle(templatised ? '${seriesToShow}' : seriesToShow)
             .build(),
@@ -90,7 +77,6 @@ export function getBasicScene(templatised = true, seriesToShow = '__server_names
       new VariableValueSelectors({}),
       new SceneControlsSpacer(),
       customObject,
-      new SceneTimePicker({ isOnCanvas: true }),
       new SceneRefreshPicker({
         intervals: ['5s', '1m', '1h'],
         isOnCanvas: true,
