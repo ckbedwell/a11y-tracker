@@ -47,6 +47,7 @@ export function getBasicScene(templatised = true, seriesToShow = '__server_names
         queries: [
           {
             ...queryRunner.state.queries[0],
+            omitTime: newState.hidePicker,
           },
         ],
       });
@@ -78,7 +79,7 @@ export function getBasicScene(templatised = true, seriesToShow = '__server_names
       new SceneControlsSpacer(),
       customObject,
       new SceneRefreshPicker({
-        intervals: ['5s', '1m', '1h'],
+        intervals: ['30m', '1h'],
         isOnCanvas: true,
       }),
     ],

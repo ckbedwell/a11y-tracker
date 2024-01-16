@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/ckbedwell/grafana-a11y/pkg/models"
@@ -42,190 +40,78 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 
 	// loop over queries and execute them individually.
 	for _, q := range req.Queries {
-		if q.QueryType == "issues" {
-			issues, err := d.getAllIssues(q)
-			if err != nil {
-				log.DefaultLogger.Error("Get issues error", err)
-				e = err
-			}
+		to := q.TimeRange.To.Format(time.RFC3339)
+		from := q.TimeRange.From.Format(time.RFC3339)
+		issueQueryOptions := parseIssueQueryoptions(q)
+		dateField := issueQueryOptions.DateField
 
-			issuesDataFrames := toIssuesDataFrames(issues, q.RefID)
-			response.Responses[q.RefID] = toDataResponse(issuesDataFrames, q.RefID)
+		queriesParam := []string{
+			`repo:grafana/grafana`,
+		}
+
+		if dateField == "" {
+			dateField = "created"
+		}
+
+		if q.QueryType == "issues_closed" {
+			dateField = "closed"
+			queriesParam = append(queriesParam, "state:closed")
+		}
+
+		if !issueQueryOptions.OmitTime {
+			queriesParam = append(queriesParam, fmt.Sprintf("%s:%s..%s", dateField, from, to))
+		}
+
+		issues, err := d.getAllIssues(queriesParam)
+		if err != nil {
+			e = err
+		}
+
+		if q.QueryType == "issues_all" {
+			issuesDataFrames := toIssuesDataFrames(issues)
+			response.Responses[q.RefID] = toDataResponse(issuesDataFrames)
+		}
+
+		if q.QueryType == "issues_created" || q.QueryType == "issues_closed" {
+			issuesDataFrames := toIssuesDateDataFrames(issues, q, issueQueryOptions, dateField)
+			response.Responses[q.RefID] = toDataResponse(issuesDataFrames)
 		}
 
 		if q.QueryType == "labels" {
 			labels, err := d.getAllLabels(q)
 			if err != nil {
-				log.DefaultLogger.Error("Get issues error", err)
 				e = err
 			}
 
 			labelsDataFrames := toLabelsDataFrames(labels, q.RefID)
-			response.Responses[q.RefID] = toDataResponse(labelsDataFrames, q.RefID)
+			response.Responses[q.RefID] = toDataResponse(labelsDataFrames)
 		}
+	}
+
+	if e != nil {
+		log.DefaultLogger.Error("QueryData error", e)
 	}
 
 	return response, e
 }
 
-func toDataResponse(frames data.Frames, refId string) backend.DataResponse {
+func parseIssueQueryoptions(query backend.DataQuery) models.IssuesQueryOptions {
+	var options models.IssuesQueryOptions
+	err := json.Unmarshal(query.JSON, &options)
+	if err != nil {
+		log.DefaultLogger.Error("parseJSONoptions error", err)
+	}
+
+	return options
+}
+
+func toDataResponse(frames data.Frames) backend.DataResponse {
 	return backend.DataResponse{
 		Frames:      frames,
 		Error:       nil,
 		Status:      backend.Status(200),
 		ErrorSource: backend.ErrorSourceDownstream,
 	}
-}
-
-func toIssuesDataFrames(res []models.Issue, refId string) data.Frames {
-	frame := data.NewFrame(
-		"issues",
-		data.NewField("title", nil, []string{}),
-		data.NewField("createdAt", nil, []string{}),
-		data.NewField("author", nil, []string{}),
-		data.NewField("state", nil, []string{}),
-		data.NewField("labels", nil, []string{}),
-	)
-	frame.RefID = refId // TODO: check what happens without this
-
-	for _, v := range res {
-		labels := []string{}
-
-		for _, l := range v.Labels {
-			labels = append(labels, l.Name)
-		}
-
-		frame.AppendRow(v.Title, v.CreatedAt, v.User.Login, v.State, strings.Join(labels, `,`))
-	}
-
-	return data.Frames{frame}
-}
-
-func toLabelsDataFrames(res []models.Label, refId string) data.Frames {
-	frame := data.NewFrame(
-		"issues",
-		data.NewField("title", nil, []string{}),
-		data.NewField("color", nil, []string{}),
-	)
-	frame.RefID = refId // TODO: check what happens without this
-
-	for _, v := range res {
-		frame.AppendRow(v.Name, v.Color)
-	}
-
-	return data.Frames{frame}
-}
-
-func (d *Datasource) getAllIssues(req backend.DataQuery) ([]models.Issue, error) {
-	log.DefaultLogger.Error("Get issues", req)
-	to := req.TimeRange.To.Format(time.RFC3339)
-	from := req.TimeRange.From.Format(time.RFC3339)
-
-	query := []string{
-		"repo:grafana/grafana",
-		"is:issue",
-		fmt.Sprintf("created:%s..%s", from, to),
-		"label:type/accessibility",
-	}
-
-	params := []string{
-		"per_page=100",
-		fmt.Sprintf("q=%s", strings.Join(query, `+`)),
-	}
-
-	url := fmt.Sprintf("https://api.github.com/search/issues?%s", strings.Join(params, `&`))
-
-	items, err := d.getAll(url)
-	if err != nil {
-		return nil, err
-	}
-
-	var issues []models.Issue
-
-	for _, item := range items {
-		var result models.SearchIssuesResponse
-		err := json.Unmarshal(item, &result)
-
-		if err != nil {
-			return nil, err
-		}
-
-		issues = append(issues, result.Items...)
-	}
-
-	return issues, nil
-}
-
-// func dateGroupIssues(req backend.DataQuery) {
-
-// }
-
-func (d *Datasource) getAllLabels(req backend.DataQuery) ([]models.Label, error) {
-	items, err := d.getAll("https://api.github.com/repos/grafana/grafana/labels")
-
-	var labels []models.Label
-
-	for _, item := range items {
-		var result []models.Label
-		err := json.Unmarshal(item, &result)
-
-		if err != nil {
-			return nil, err
-		}
-
-		labels = append(labels, result...)
-	}
-
-	return labels, err
-}
-
-func (d *Datasource) getAll(baseURL string) ([][]byte, error) {
-	url := baseURL
-	var items [][]byte
-
-	for {
-		log.DefaultLogger.Info("Paginate URL", url)
-		request, err := d.createRequest(url)
-		log.DefaultLogger.Info("QueryData Request", url)
-		if err != nil {
-			return nil, err
-		}
-
-		body, headers, err := d.doRequest(request)
-		if err != nil {
-			return nil, err
-		}
-
-		items = append(items, body)
-
-		linkHeader := headers.Get("Link")
-		url = getNextURL(linkHeader)
-		if url == "" {
-			break
-		}
-	}
-
-	return items, nil
-}
-
-func getNextURL(linkHeader string) string {
-	links := strings.Split(linkHeader, ",")
-	var nextURL string
-
-	for _, link := range links {
-		if strings.Contains(link, `rel="next"`) {
-			nextURL = getURL(link)
-			break
-		}
-	}
-
-	return nextURL
-}
-
-func getURL(link string) string {
-	re := regexp.MustCompile(`<(.*)>`)
-	matches := re.FindStringSubmatch(link)
-	return matches[1]
 }
 
 func (d *Datasource) doRequest(request *http.Request) ([]byte, http.Header, error) {

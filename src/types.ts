@@ -2,7 +2,9 @@ import { DataSourceJsonData } from '@grafana/data';
 import { DataQuery } from '@grafana/schema';
 
 export interface MyQuery extends DataQuery {
-  queryType: 'issues' | 'labels';
+  queryType: 'issues_all' | 'labels' | `issues_created` | `issues_closed`;
+  dateDisplay?: `years` | `months` | `weeks` | `days`;
+  omitTime?: boolean;
 }
 
 /**

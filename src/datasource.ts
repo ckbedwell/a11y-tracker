@@ -10,7 +10,8 @@ export class DataSource extends DataSourceWithBackend<MyQuery, MyDataSourceOptio
 
   getDefaultQuery(_: CoreApp): Partial<MyQuery> {
     return {
-      queryType: 'issues',
+      queryType: 'issues_all',
+      omitTime: true,
     };
   }
 }
