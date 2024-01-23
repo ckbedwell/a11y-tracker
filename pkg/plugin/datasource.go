@@ -67,25 +67,8 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			e = err
 		}
 
-		if q.QueryType == "issues_all" {
-			issuesDataFrames := toIssuesDataFrames(issues)
-			response.Responses[q.RefID] = toDataResponse(issuesDataFrames)
-		}
-
-		if q.QueryType == "issues_created" || q.QueryType == "issues_closed" {
-			issuesDataFrames := toIssuesDateDataFrames(issues, q, issueQueryOptions, dateField)
-			response.Responses[q.RefID] = toDataResponse(issuesDataFrames)
-		}
-
-		if q.QueryType == "labels" {
-			labels, err := d.getAllLabels(q)
-			if err != nil {
-				e = err
-			}
-
-			labelsDataFrames := toLabelsDataFrames(labels, q.RefID)
-			response.Responses[q.RefID] = toDataResponse(labelsDataFrames)
-		}
+		issuesDataFrames := toIssuesDataFrames(issues, q.QueryType)
+		response.Responses[q.RefID] = toDataResponse(issuesDataFrames)
 	}
 
 	if e != nil {

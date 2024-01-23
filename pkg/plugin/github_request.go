@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
 // TODO: handle - what if there are 1000s of pages for pagination?
@@ -13,6 +15,7 @@ func (d *Datasource) getAll(baseURL string, queriesParam []string) ([][]byte, er
 	var items [][]byte
 
 	for {
+		log.DefaultLogger.Info(`url`, url)
 		request, err := d.createRequest(url)
 		if err != nil {
 			return nil, err

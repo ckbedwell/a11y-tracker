@@ -11,33 +11,57 @@ import {
   SceneVariableSet,
   VariableValueSelectors,
 } from '@grafana/scenes';
-import { DATASOURCE_REF, DEFAULT_TIMERANGE } from '../../constants';
+import { VizOrientation } from '@grafana/data';
+import { DATASOURCE_REF, DEFAULT_TIMERANGE, ISSUES_CLOSED_NAME, ISSUES_CREATED_NAME, MAIN_QUERY } from 'app/constants';
 import { ToggleTimePicker } from './ToggleTimePicker';
+import { getTimeSeriesIssues } from 'app/dataTransformations/getTimeSeriesIssues';
+import { getLabelFromIssues } from 'app/dataTransformations/getLabelFromIssues';
+import { IssuesTimeSeriesOverview } from './VizPanels/IssuesTimeSeriesOverview';
+import { WCAGLevelsOverview } from './VizPanels/WCAGLevelsOverview';
+
+const repoOptions = {
+  'grafana/grafana': `grafana/grafana`,
+  'grafana/grafana-k6-app': `grafana/grafana-k6-app`,
+};
 
 export function getBasicScene(templatised = true, seriesToShow = '__server_names') {
   const timeRange = new SceneTimeRange(DEFAULT_TIMERANGE);
+  const omitTime = false;
 
   // Variable definition, using Grafana built-in TestData datasource
   const customVariable = new CustomVariable({
-    name: 'seriesToShow',
-    label: 'Series to show',
-    value: '__server_names',
-    query: 'Server Names : __server_names, House locations : __house_locations',
+    name: 'projectToShow',
+    label: 'Project to show',
+    value: '__project_to_show',
+    query: Object.entries(repoOptions)
+      .map(([value, label]) => `${label} : ${value}`)
+      .join(`, `),
   });
 
   const queryRunner = new SceneQueryRunner({
     datasource: DATASOURCE_REF,
     queries: [
       {
-        refId: 'A',
-        // datasource: DATASOURCE_REF,
+        refId: MAIN_QUERY,
+        omitTime,
+        queryType: `issues_all`,
+      },
+      {
+        refId: ISSUES_CREATED_NAME,
+        omitTime,
+        queryType: `issues_created`,
+      },
+      {
+        refId: ISSUES_CLOSED_NAME,
+        omitTime,
+        queryType: `issues_closed`,
       },
     ],
   });
 
   // Custom object definition
   const customObject = new ToggleTimePicker({
-    hidePicker: true,
+    hidePicker: omitTime,
   });
 
   // Query runner activation handler that will update query runner state when custom object state changes
@@ -59,18 +83,58 @@ export function getBasicScene(templatised = true, seriesToShow = '__server_names
     };
   });
 
+  const debugView = PanelBuilders.table().setTitle('Debug view').build();
+
   return new EmbeddedScene({
     $timeRange: timeRange,
     $variables: new SceneVariableSet({ variables: templatised ? [customVariable] : [] }),
     $data: queryRunner,
     body: new SceneFlexLayout({
+      direction: 'column',
       children: [
+        new SceneFlexLayout({
+          direction: 'row',
+          children: [
+            new SceneFlexItem({
+              minHeight: 150,
+              body: debugView,
+            }),
+            new SceneFlexLayout({
+              direction: 'column',
+              children: [
+                new SceneFlexItem({
+                  minHeight: 150,
+                  body: new WCAGLevelsOverview({}),
+                }),
+                new SceneFlexItem({
+                  $data: getLabelFromIssues(queryRunner),
+                  minHeight: 600,
+                  body: PanelBuilders.barchart().setOption(`orientation`, VizOrientation.Horizontal).build(),
+                }),
+              ],
+            }),
+          ],
+        }),
         new SceneFlexItem({
-          minHeight: 300,
+          minHeight: 600,
           body: PanelBuilders.table()
             // Title is using variable value
             .setTitle(templatised ? '${seriesToShow}' : seriesToShow)
             .build(),
+        }),
+        new SceneFlexLayout({
+          $data: getTimeSeriesIssues(queryRunner),
+          direction: 'column',
+          children: [
+            new SceneFlexItem({
+              minHeight: 150,
+              body: new IssuesTimeSeriesOverview({}),
+            }),
+            new SceneFlexItem({
+              minHeight: 600,
+              body: PanelBuilders.timeseries().build(),
+            }),
+          ],
         }),
       ],
     }),

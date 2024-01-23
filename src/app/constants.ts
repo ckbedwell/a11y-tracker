@@ -24,3 +24,8 @@ export const DEFAULT_TIMERANGE = {
   from: 'now-6M',
   to: 'now',
 };
+
+export const MAIN_QUERY = `MAIN_QUERY`;
+
+export const ISSUES_CREATED_NAME = `Issues Created`;
+export const ISSUES_CLOSED_NAME = `Issues Closed`;

@@ -1,11 +1,11 @@
 import React from 'react';
 import { GrafanaTheme2 } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
-import { css } from '@emotion/css';
+import { css, cx } from '@emotion/css';
 import { AlignItems, Direction, FlexProps, JustifyContent, ThemeSpacingTokens, Wrap } from './types';
 import { getResponsiveStyle, ResponsiveProp } from './responsiveness';
 
-interface StackProps extends FlexProps, Omit<React.HTMLAttributes<HTMLElement>, 'className' | 'style'> {
+interface StackProps extends FlexProps, React.HTMLAttributes<HTMLElement> {
   gap?: ResponsiveProp<ThemeSpacingTokens>;
   alignItems?: ResponsiveProp<AlignItems>;
   justifyContent?: ResponsiveProp<JustifyContent>;
@@ -15,13 +15,26 @@ interface StackProps extends FlexProps, Omit<React.HTMLAttributes<HTMLElement>, 
 }
 
 export const Stack = React.forwardRef<HTMLDivElement, StackProps>((props, ref) => {
-  const { gap = 1, alignItems, justifyContent, direction, wrap, children, grow, shrink, basis, flex, ...rest } = props;
+  const {
+    className,
+    gap = 1,
+    alignItems,
+    justifyContent,
+    direction,
+    wrap,
+    children,
+    grow,
+    shrink,
+    basis,
+    flex,
+    ...rest
+  } = props;
   const styles = useStyles2((theme) =>
     getStyles(theme, gap, alignItems, justifyContent, direction, wrap, grow, shrink, basis, flex)
   );
 
   return (
-    <div ref={ref} className={styles.flex} {...rest}>
+    <div ref={ref} className={cx(className, styles.flex)} {...rest}>
       {children}
     </div>
   );

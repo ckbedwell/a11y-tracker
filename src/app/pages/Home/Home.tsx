@@ -11,9 +11,8 @@ const getScene = () => {
   return new SceneApp({
     pages: [
       new SceneAppPage({
-        title: 'Home page',
-        subTitle:
-          'This scene showcases a basic scene functionality, including query runner, variable and a custom scene object.',
+        title: 'Accessibility Issue Tracker',
+        subTitle: 'Track accessibility issues for Grafana and Grafana plugins.',
         url: prefixRoute(ROUTES.Home),
         getScene: () => {
           return getBasicScene();

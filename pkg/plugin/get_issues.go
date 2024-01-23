@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ckbedwell/grafana-a11y/pkg/models"
+	"github.com/ckbedwell/grafana-a11y/pkg/utils"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
@@ -41,9 +42,9 @@ func (d *Datasource) getAllIssues(queries []string) ([]models.Issue, error) {
 	return issues, nil
 }
 
-func toIssuesDataFrames(res []models.Issue) data.Frames {
+func toIssuesDataFrames(res []models.Issue, queryType string) data.Frames {
 	frame := data.NewFrame(
-		"issues",
+		queryType,
 		data.NewField("title", nil, []string{}),
 		data.NewField("createdAt", nil, []time.Time{}),
 		data.NewField("closedAt", nil, []*time.Time{}),
@@ -51,6 +52,7 @@ func toIssuesDataFrames(res []models.Issue) data.Frames {
 		data.NewField("author", nil, []string{}),
 		data.NewField("state", nil, []string{}),
 		data.NewField("labels", nil, []string{}),
+		data.NewField("wcag conformance", nil, []string{}),
 	)
 
 	for _, v := range res {
@@ -60,10 +62,29 @@ func toIssuesDataFrames(res []models.Issue) data.Frames {
 			labels = append(labels, l.Name)
 		}
 
-		frame.AppendRow(v.Title, v.CreatedAt, v.ClosedAt, v.UpdatedAt, v.User.Login, v.State, strings.Join(labels, `,`))
+		wcagLevel := getWCAGLevelConformance(v.Labels, utils.WCAGConformanceMap)
+		frame.AppendRow(v.Title, v.CreatedAt, v.ClosedAt, v.UpdatedAt, v.User.Login, v.State, strings.Join(labels, `,`), wcagLevel)
 	}
 
 	return data.Frames{frame}
+}
+
+func getWCAGLevelConformance(labels []models.Label, conformanceLevels utils.ConformanceMap) string {
+	if labels == nil {
+		return ``
+	}
+
+	for _, label := range labels {
+		if strings.Contains(label.Name, `wcag`) {
+			refId := strings.Split(label.Name, `/`)[1]
+
+			if conformanceLevels[refId] != `` {
+				return conformanceLevels[refId]
+			}
+		}
+	}
+
+	return ``
 }
 
 func toIssuesDateDataFrames(res []models.Issue, query backend.DataQuery, issueQueryOptions models.IssuesQueryOptions, dateField string) data.Frames {
