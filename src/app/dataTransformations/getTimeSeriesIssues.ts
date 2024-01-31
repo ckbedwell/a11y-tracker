@@ -1,47 +1,32 @@
-import { SceneDataTransformer, SceneQueryRunner, CustomTransformOperator } from '@grafana/scenes';
 import { DataFrame, FieldType } from '@grafana/data';
-import { Observable } from 'rxjs';
-import { mergeMap } from 'rxjs/operators';
 
-import { ISSUES_CLOSED_NAME, ISSUES_CREATED_NAME } from 'app/constants';
-import { getDataFrameFromSeries, getFieldValues } from 'app/utils/utils.data';
-
-export function getTimeSeriesIssues(queryRunner: SceneQueryRunner) {
-  return new SceneDataTransformer({
-    $data: queryRunner,
-    transformations: [convertQueries],
-  });
-}
-
-const convertQueries: CustomTransformOperator = () => (source: Observable<DataFrame[]>) => {
-  return source.pipe(
-    mergeMap((data: DataFrame[]) => {
-      const createdQuery = getDataFrameFromSeries(data, ISSUES_CREATED_NAME);
-      const closedQuery = getDataFrameFromSeries(data, ISSUES_CLOSED_NAME);
-
-      if (!createdQuery || !closedQuery) {
-        return [];
-      }
-
-      return issuesByDate(createdQuery, closedQuery);
-    })
-  );
-};
+import { TRANSFORM_ISSUES_CLOSED_DATES_COUNT_REF, TRANSFORM_ISSUES_CREATED_DATES_COUNT_REF } from 'app/constants';
+import { getFieldValues } from 'app/utils/utils.data';
 
 type TimeUnit = `hour` | `day` | `week` | `month` | `year`;
 type Time = number;
 
-export function issuesByDate(createdQuery: DataFrame, closedQuery: DataFrame): DataFrame[][] {
-  const createdAtValues = getFieldValues(createdQuery, 'createdAt');
-  const closedAtValues = getFieldValues(closedQuery, 'closedAt');
+export function issuesByDate(createdQuery: DataFrame, closedQuery: DataFrame): DataFrame[] {
+  const createdAtValues = getFieldValues(createdQuery, 'createdAt', Boolean) || [];
+  const closedAtValues = getFieldValues(closedQuery, 'closedAt', Boolean) || [];
   const timeUnit = `month`;
   const adjustedDateEntries = groupByDate(timeUnit, createdAtValues, closedAtValues);
 
   return [
-    [
-      createDataFrame(timeUnit, `Issues Created`, adjustedDateEntries, createdAtValues),
-      createDataFrame(timeUnit, `Issues Closed`, adjustedDateEntries, closedAtValues),
-    ],
+    createDataFrame({
+      timeUnit,
+      name: `Issues Created`,
+      entries: adjustedDateEntries,
+      dateValues: createdAtValues,
+      refID: TRANSFORM_ISSUES_CREATED_DATES_COUNT_REF,
+    }),
+    createDataFrame({
+      timeUnit,
+      name: `Issues Closed`,
+      entries: adjustedDateEntries,
+      dateValues: closedAtValues,
+      refID: TRANSFORM_ISSUES_CLOSED_DATES_COUNT_REF,
+    }),
   ];
 }
 
@@ -58,8 +43,16 @@ function groupByDate(timeUnit: TimeUnit, ...args: Time[][]) {
   return Array.from(uniqueDates).sort();
 }
 
-function createDataFrame(timeUnit: TimeUnit, name: string, adjustedDateEntries: Time[], dateValues: Time[]): DataFrame {
-  const countValues = assignAdjustedDates(timeUnit, dateValues, adjustedDateEntries);
+type CreateDataFrameArgs = {
+  timeUnit: TimeUnit;
+  name: string;
+  entries: Time[];
+  dateValues: Time[];
+  refID: string;
+};
+
+function createDataFrame({ timeUnit, name, entries, dateValues, refID }: CreateDataFrameArgs): DataFrame {
+  const countValues = assignAdjustedDates(timeUnit, dateValues, entries);
 
   return {
     fields: [
@@ -67,7 +60,7 @@ function createDataFrame(timeUnit: TimeUnit, name: string, adjustedDateEntries: 
         config: {},
         name: `reset date`,
         type: FieldType.time,
-        values: adjustedDateEntries,
+        values: entries,
       },
       {
         config: {},
@@ -76,9 +69,9 @@ function createDataFrame(timeUnit: TimeUnit, name: string, adjustedDateEntries: 
         values: countValues,
       },
     ],
-    length: adjustedDateEntries.length,
+    length: entries.length,
     name: ``,
-    refId: `${name}_DATES`,
+    refId: refID,
   };
 }
 

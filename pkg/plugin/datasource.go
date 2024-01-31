@@ -43,14 +43,9 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		to := q.TimeRange.To.Format(time.RFC3339)
 		from := q.TimeRange.From.Format(time.RFC3339)
 		issueQueryOptions := parseIssueQueryoptions(q)
-		dateField := issueQueryOptions.DateField
-
+		dateField := "created"
 		queriesParam := []string{
-			`repo:grafana/grafana`,
-		}
-
-		if dateField == "" {
-			dateField = "created"
+			fmt.Sprintf("repo:%s", issueQueryOptions.Project),
 		}
 
 		if q.QueryType == "issues_closed" {
@@ -58,9 +53,12 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			queriesParam = append(queriesParam, "state:closed")
 		}
 
-		if !issueQueryOptions.OmitTime {
-			queriesParam = append(queriesParam, fmt.Sprintf("%s:%s..%s", dateField, from, to))
+		if q.QueryType == "issues_open" {
+			queriesParam = append(queriesParam, "state:open")
 		}
+
+		queriesParam = append(queriesParam,
+			fmt.Sprintf("%s:%s..%s", dateField, from, to))
 
 		issues, err := d.getAllIssues(queriesParam)
 		if err != nil {

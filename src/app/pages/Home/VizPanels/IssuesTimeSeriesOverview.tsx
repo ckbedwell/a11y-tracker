@@ -1,11 +1,15 @@
-import React from 'react';
+import React, { ReactNode } from 'react';
 import { FieldType, GrafanaTheme2, PanelData } from '@grafana/data';
 import { useStyles2 } from '@grafana/ui';
 import { SceneComponentProps, SceneObjectBase, sceneGraph } from '@grafana/scenes';
 import { css } from '@emotion/css';
 
-import { getDataFrameFromSeries, getFieldByTypeFromDataFrame } from 'app/utils/utils.data';
-import { ISSUES_CLOSED_NAME, ISSUES_CREATED_NAME } from 'app/constants';
+import { getDataFrameFromSeries, getFieldByNameFromDataFrame, getFieldByTypeFromDataFrame } from 'app/utils/utils.data';
+import {
+  REQUEST_ISSUES_CLOSED_REF,
+  TRANSFORM_ISSUES_CREATED_DATES_COUNT_REF,
+  TRANSFORM_ISSUES_CLOSED_DATES_COUNT_REF,
+} from 'app/constants';
 import { Stack } from 'app/components/Stack';
 
 export class IssuesTimeSeriesOverview extends SceneObjectBase {
@@ -14,8 +18,9 @@ export class IssuesTimeSeriesOverview extends SceneObjectBase {
 
 function IssuesTimeSeriesOverviewRenderer({ model }: SceneComponentProps<IssuesTimeSeriesOverview>) {
   const { data } = sceneGraph.getData(model).useState();
-  const closedIssuesSum = getSum(data, `${ISSUES_CLOSED_NAME}_DATES`);
-  const createdIssuesSum = getSum(data, `${ISSUES_CREATED_NAME}_DATES`);
+  const closedIssuesSum = getSum(data, TRANSFORM_ISSUES_CLOSED_DATES_COUNT_REF);
+  const createdIssuesSum = getSum(data, TRANSFORM_ISSUES_CREATED_DATES_COUNT_REF);
+  const averageDuration = getAverageDuration(data);
   const styles = useStyles2(getStyles);
 
   return (
@@ -26,9 +31,14 @@ function IssuesTimeSeriesOverviewRenderer({ model }: SceneComponentProps<IssuesT
         xs: `column`,
       }}
     >
-      <IndividualPanel title="Created Issues" value={createdIssuesSum} />
-      <IndividualPanel title="Closed Issues" value={closedIssuesSum} />
-      <IndividualPanel title="Closure Rate" value={Number((closedIssuesSum / createdIssuesSum).toPrecision(2))} />
+      <IndividualPanel title="Created Issues" value={createdIssuesSum} color="#f7909c " />
+      <IndividualPanel title="Closed Issues" value={closedIssuesSum} color="#619e5a" />
+      <IndividualPanel
+        title="Closure Rate"
+        value={Number((closedIssuesSum / createdIssuesSum).toPrecision(2))}
+        color="#f2cc0c"
+      />
+      <IndividualPanel title="Avg. issue duration" value={averageDuration} color="#3d71d9" />
     </Stack>
   );
 }
@@ -53,17 +63,36 @@ function getSum(data: PanelData | undefined, queryName: string) {
   return query.values.reduce((acc, curr) => acc + curr, 0);
 }
 
+function getAverageDuration(data: PanelData | undefined) {
+  if (!data) {
+    return `N/A`;
+  }
+
+  const dataFrame = getDataFrameFromSeries(data.series, REQUEST_ISSUES_CLOSED_REF);
+  const values = getFieldByNameFromDataFrame(dataFrame, `duration`);
+  const total = values?.values.reduce((acc, curr) => acc + curr, 0);
+  const averageInDays = Math.round(total / (values?.values?.length || 1));
+
+  return `${averageInDays} days`;
+}
+
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css({
     height: `100%`,
   }),
 });
 
-const IndividualPanel = ({ title, value }: { title: string; value: number }) => {
+type PanelProps = {
+  color: string;
+  title: string;
+  value: ReactNode;
+};
+
+const IndividualPanel = ({ title, value, color }: PanelProps) => {
   const styles = useStyles2(getPanelStyles);
 
   return (
-    <div className={styles.container}>
+    <div className={styles.container} style={{ borderBottom: `5px solid ${color}` }}>
       <h2 className="h4">{title}</h2>
       <div className={styles.content}>{value}</div>
     </div>
